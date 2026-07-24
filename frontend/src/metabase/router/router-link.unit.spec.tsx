@@ -2,7 +2,13 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders, screen } from "__support__/ui";
 import { useDispatch } from "metabase/redux";
-import { Link, Outlet, Route, push, useLocation } from "metabase/router";
+import {
+  RouterLink as Link,
+  Outlet,
+  Route,
+  push,
+  useLocation,
+} from "metabase/router";
 
 function Home() {
   const { pathname, key } = useLocation();
