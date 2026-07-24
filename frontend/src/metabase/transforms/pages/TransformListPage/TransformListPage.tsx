@@ -23,9 +23,9 @@ import { Link, Outlet, useRouter } from "metabase/router";
 import { LockedTransformsBanner } from "metabase/transforms/components/LockedTransformsBanner/LockedTransformsBanner";
 import { useTransformPermissions } from "metabase/transforms/hooks/use-transform-permissions";
 import { getShouldShowPythonTransformsUpsell } from "metabase/transforms/selectors";
-import { Ellipsified } from "metabase/ui";
 import {
   Card,
+  Ellipsified,
   EntityNameCell,
   Flex,
   Group,
