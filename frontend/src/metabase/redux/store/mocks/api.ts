@@ -55,11 +55,12 @@ export function seedApiQueryCache(
     return apiState;
   }
 
-  // endpointName/value are validated at runtime by RTK against the injected
-  // endpoint registry; the cast keeps this helper endpoint-agnostic.
   return Api.reducer(
     apiState,
     Api.util.upsertQueryEntries(
+      // endpointName/value are validated at runtime by RTK against the
+      // injected endpoint registry; the cast keeps this helper
+      // endpoint-agnostic.
       newEntries as Parameters<typeof Api.util.upsertQueryEntries>[0],
     ),
   );
