@@ -40,11 +40,11 @@ import {
   routerMiddleware,
   routing as routingReducer,
 } from "metabase/router";
+import { RouterProviderV7Memory } from "metabase/router/v7/RouterProviderV7";
 import {
-  type MemoryTestHistory,
-  RouterProviderV7Memory,
-  createMemoryTestHistory,
-} from "metabase/router/v7/RouterProviderV7";
+  type MemoryTestRouter,
+  createMemoryAppRouter,
+} from "metabase/router/v7/create-router";
 import { toV3Location } from "metabase/router/v7/location";
 import {
   createV7Navigator,
@@ -193,12 +193,10 @@ export function getTestStoreAndWrapper({
     initialState = _.pick(initialState, ...publicReducerNames);
   }
 
-  // The harness owns the memory history (rather than the provider creating it
+  // The harness owns the memory router (rather than the provider creating it
   // internally) so specs still get a handle to drive and assert against.
-  const v7History = withRouter
-    ? createMemoryTestHistory(initialRoute)
-    : undefined;
-  const history = v7History ? createV3HistoryAdapter(v7History) : undefined;
+  const v7Router = withRouter ? createMemoryAppRouter(initialRoute) : undefined;
+  const history = v7Router ? createV3HistoryAdapter(v7Router) : undefined;
 
   let reducers;
 
@@ -235,7 +233,7 @@ export function getTestStoreAndWrapper({
       <TestWrapper
         {...props}
         store={store}
-        v7History={v7History}
+        v7Router={v7Router}
         withRouter={withRouter}
         initialRoute={initialRoute}
         withDND={withDND}
@@ -287,7 +285,7 @@ const TestColorSchemeProvider = ({ children }: React.PropsWithChildren) => {
 export function TestWrapper({
   children,
   store,
-  v7History,
+  v7Router,
   withRouter,
   initialRoute = "/",
   withKBar,
@@ -299,7 +297,7 @@ export function TestWrapper({
 }: {
   children: React.ReactElement;
   store: any;
-  v7History?: MemoryTestHistory;
+  v7Router?: MemoryTestRouter;
   withRouter: boolean;
   initialRoute?: string;
   withKBar: boolean;
@@ -336,7 +334,7 @@ export function TestWrapper({
                 <MaybeKBar hasKBar={withKBar}>
                   <MaybeRouter
                     hasRouter={withRouter}
-                    v7History={v7History}
+                    v7Router={v7Router}
                     initialRoute={initialRoute}
                   >
                     {children}
@@ -354,40 +352,51 @@ export function TestWrapper({
 
 /**
  * The v3 `history` surface the specs drive and assert against
- * (`getCurrentLocation()`, `push`, `goBack`, `listen`, ...), backed by the v7
- * memory history. Lets specs written against the v3 engine keep working
- * unchanged on v7. Cast to `History` so the handle specs already destructure
- * keeps its type; it implements the subset they use.
+ * (`getCurrentLocation()`, `push`, `goBack`, `listen`, ...), backed by the memory
+ * data router. Lets specs written against the v3 engine keep working unchanged.
+ * Cast to `History` so the handle specs already destructure keeps its type; it
+ * implements the subset they use.
  */
-function createV3HistoryAdapter(history: MemoryTestHistory): History {
+function createV3HistoryAdapter(router: MemoryTestRouter): History {
   const getCurrentLocation = () =>
-    // v7 types `action` as its own `Action` enum; the values are the same
+    // v7 types `historyAction` as its own `Action` enum; the values are the same
     // "POP"/"PUSH"/"REPLACE" strings the facade's `Action` union uses.
-    toV3Location(history.location, history.action as Action);
+    toV3Location(router.state.location, router.state.historyAction as Action);
+
+  // v3's history methods returned void. Swallow the router's promise rather than
+  // handing it back: specs drive these inside `act()`, which switches to its
+  // async mode the moment the callback returns a thenable.
+  const navigate = (...args: unknown[]) => {
+    // `navigate` is an overloaded signature (a `To` or a delta); the wrapper
+    // takes both arms, which TS cannot infer back into the overload.
+    (router.navigate as (...args: unknown[]) => Promise<void>)(...args);
+  };
 
   const adapter = {
     getCurrentLocation,
     get location() {
       return getCurrentLocation();
     },
-    push: (location: LocationDescriptor) => {
-      const [to, options] = toNavigateArgs(location);
-      history.push(to, options.state);
-    },
-    replace: (location: LocationDescriptor) => {
-      const [to, options] = toNavigateArgs(location);
-      history.replace(to, options.state);
-    },
-    go: (n: number) => history.go(n),
-    goBack: () => history.go(-1),
-    goForward: () => history.go(1),
+    push: (location: LocationDescriptor) =>
+      navigate(...toNavigateArgs(location)),
+    replace: (location: LocationDescriptor) =>
+      navigate(...toNavigateArgs(location, { replace: true })),
+    go: (n: number) => navigate(n),
+    goBack: () => navigate(-1),
+    goForward: () => navigate(1),
     listen: (
       listener: (location: ReturnType<typeof getCurrentLocation>) => void,
-    ) =>
-      history.listen(({ location, action }) =>
+    ) => {
+      let lastKey = router.state.location.key;
+      return router.subscribe(({ location, historyAction }) => {
+        if (location.key === lastKey) {
+          return;
+        }
+        lastKey = location.key;
         // Same enum-vs-union mismatch as in `getCurrentLocation` above.
-        listener(toV3Location(location, action as Action)),
-      ),
+        listener(toV3Location(location, historyAction as Action));
+      });
+    },
   };
 
   // The adapter implements the subset of v3's `History` the specs actually call,
@@ -416,12 +425,12 @@ function childrenAreRouteTree(children: React.ReactNode): boolean {
 function MaybeRouter({
   children,
   hasRouter,
-  v7History,
+  v7Router,
   initialRoute,
 }: {
   children: React.ReactElement;
   hasRouter: boolean;
-  v7History?: MemoryTestHistory;
+  v7Router?: MemoryTestRouter;
   initialRoute: string;
 }): JSX.Element {
   if (!hasRouter) {
@@ -436,7 +445,7 @@ function MaybeRouter({
     <Route path="*" element={children} />
   );
   return (
-    <RouterProviderV7Memory initialRoute={initialRoute} history={v7History}>
+    <RouterProviderV7Memory initialRoute={initialRoute} router={v7Router}>
       {content}
     </RouterProviderV7Memory>
   );

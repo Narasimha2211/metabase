@@ -22,7 +22,7 @@ import type {
   WithRouterProps,
 } from "../types";
 
-import { registerLeaveHook } from "./blocking-history";
+import { registerLeaveHook } from "./leave-hooks";
 import { toV3Location } from "./location";
 import { subscribeLocation, toNavigateArgs } from "./navigator";
 
@@ -146,8 +146,9 @@ export function RouterBridge({
  * The v3 `InjectedRouter` (`router.push/replace/go/...`) reimplemented over v7's
  * `navigate`. The facade's `useNavigate` has already resolved relative targets to
  * absolute paths before calling `push`/`replace`, so these pass straight through.
- * `setRouteLeaveHook` registers into the blocking history, which cancels the
- * navigation when the hook returns `false`, matching v3. The route's matched
+ * `setRouteLeaveHook` registers into the leave-hook registry backing the router's
+ * blocker, which cancels the navigation when the hook returns `false`, matching
+ * v3. The route's matched
  * pathname scopes the hook, so it fires only when the destination leaves that
  * route, the way v3's `listenBeforeLeavingRoute` does.
  */
@@ -176,7 +177,7 @@ function makeRouterShim(navigate: V7NavigateFunction): InjectedRouter {
     createHref: href,
     isActive: () => false,
     // Stands in for v3's `router.listen` (used by e.g. `use-dashboard-url-query`).
-    // `V7ReduxBridge` feeds these subscribers every location change.
+    // The router's redux mirror feeds these subscribers every location change.
     listen: subscribeLocation,
   } as InjectedRouter;
 }

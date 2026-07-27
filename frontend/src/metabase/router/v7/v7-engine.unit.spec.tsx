@@ -1,17 +1,15 @@
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 
 import { renderWithProviders, screen } from "__support__/ui";
 import {
   Outlet,
   Route,
+  push,
   useLocation,
   useNavigate,
   useParams,
   useRouter,
 } from "metabase/router";
-
-import { V7RouterTree } from "./RouterProviderV7";
 
 function Layout() {
   return (
@@ -33,6 +31,7 @@ function ThingPage() {
       <span data-testid="pathname">{pathname}</span>
       <span data-testid="search">{search}</span>
       <span data-testid="thing-id">{params.thingId}</span>
+      <span data-testid="splat">{String(params.splat)}</span>
       <span data-testid="query-tab">{String(location.query.tab)}</span>
       <button onClick={() => navigate("/other")}>go absolute</button>
       <button onClick={() => navigate("..")}>go up</button>
@@ -48,11 +47,7 @@ const tree = (
 );
 
 function setup(initialRoute: string) {
-  renderWithProviders(
-    <MemoryRouter initialEntries={[initialRoute]}>
-      <V7RouterTree>{tree}</V7RouterTree>
-    </MemoryRouter>,
-  );
+  return renderWithProviders(tree, { withRouter: true, initialRoute });
 }
 
 describe("v7 engine (facade over real react-router v7)", () => {
@@ -65,6 +60,14 @@ describe("v7 engine (facade over real react-router v7)", () => {
     expect(screen.getByTestId("thing-id")).toHaveTextContent("42");
   });
 
+  // The data router hosts the declarative tree under a `path="*"` catch-all. Its
+  // match must stay invisible to the routes below it, or every route would report
+  // the host's splat as its own.
+  it("does not leak the host route's splat into the tree", () => {
+    setup("/things/42");
+    expect(screen.getByTestId("splat")).toHaveTextContent("undefined");
+  });
+
   it("exposes a v3-shaped location.query", () => {
     setup("/things/42?tab=x");
     expect(screen.getByTestId("query-tab")).toHaveTextContent("x");
@@ -73,6 +76,17 @@ describe("v7 engine (facade over real react-router v7)", () => {
   it("navigates to an absolute path via useNavigate", async () => {
     setup("/things/42");
     await userEvent.click(screen.getByRole("button", { name: "go absolute" }));
+    expect(await screen.findByTestId("other")).toBeInTheDocument();
+  });
+
+  // Redux navigation carries no route context, and v3's history resolved a
+  // pathname without a leading slash against the root. Resolving it against the
+  // deepest match instead would send `{ pathname: "other" }` to `/things/other`.
+  it("resolves a relative redux push from the root", async () => {
+    const { store } = setup("/things/42");
+
+    store.dispatch(push({ pathname: "other" }));
+
     expect(await screen.findByTestId("other")).toBeInTheDocument();
   });
 
